@@ -50,6 +50,7 @@ class TwoWayNet(torch.nn.Module):
 
     def get_summed_gammas():
         summed = torch.zeros((1, 1))
+        summed.requires_grad = True
         for l in self.x_encoder:
             summed += torch.reciprocal(l.bn.gamma).sum()
         for l in self.y_encoder:
@@ -58,6 +59,7 @@ class TwoWayNet(torch.nn.Module):
 
     def get_summed_l2_weights():
         summed = torch.zeros((1, 1))
+        summed.requires_grad = True
         for l in self.x_encoder:
             summed += torch.norm(l.linear.weight) ** 2
         # Weights are tied, so don't need to loop over y
