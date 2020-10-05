@@ -86,10 +86,60 @@ class TwoWayNet(torch.nn.Module):
         return reconstructed_x, reconstructed_y, hidden_xs, hidden_ys 
 
 
-def train(dataset, model):
+def train(dataset, model, epochs, reconstructed_weight, hidden_weight, cov_weight, gamma_weight, lr):
+    optim = torch.optim.SGD(model.parameters(), lr, nesterov=True)
+    mse_loss = torch.nn.MSELoss()
 
-    for data in dataset:
-        # Forward pass
-        xprime, yprime, hidden_xs, hidden_ys = model(data)
+    losses = []
+    model.train()
+    for epoch in range(epochs):
+        avg_loss = 0
+        for data in dataset:
+            optim.zero_grad()
+            # Forward pass
+            xprime, yprime, hidden_xs, hidden_ys = model(data)
 
-        # Compute losses
+            # Compute losses
+            # reconstruction losses
+            loss_x = mse_loss(xprime, data["x"])
+            loss_y = mse_loss(yprime, data["y"])
+
+            # hidden loss
+            loss_hidden = mse_loss(hidden_xs[model.hidden_output_layer], hidden_ys[model.hidden_output_layer])
+
+            # covariance loss
+            hidden_xs_tensor, hidden_ys_tensor = torch.stack(hidden_xs), torch.stack(hidden_ys)
+            cov_x = torch.dot(hidden_xs_tensor.T, hidden_xs_tensor) / hidden_xs_tensor.shape[0]
+            cov_y = torch.dot(hidden_ys_tensor.T, hidden_ys_tensor) / hidden_ys_tensor.shape[0]
+
+            cov_loss_x = torch.sqrt(torch.sum(cov_x ** 2)) - torch.sqrt(torch.sum(torch.diag(cov_x) ** 2))
+            cov_loss_y = torch.sqrt(torch.sum(cov_y ** 2)) - torch.sqrt(torch.sum(torch.diag(cov_y) ** 2))
+
+            # Weight Decay loss
+            loss_weight_decay = model.get_summed_l2_weights()
+            
+            # Gamma loss
+            loss_gamma = model.get_summed_gammas()
+
+            loss = (reconstructed_weight * loss_x + 
+                    reconstructed_weight * loss_y + 
+                    hidden_weight * loss_hidden + 
+                    cov_weight * cov_loss_x + 
+                    cov_weight * cov_loss_y + 
+                    gamma_weight * loss_gamma)
+            
+            # Backward step
+            loss.backward()
+            avg_loss += loss.item()
+
+            # Update step
+            optim.step()
+        losses.append(avg_loss / len(dataset))
+        print(f"Epoch {epoch+1}, loss: {losses[-1]}")
+
+if __name__ == "__main__":
+    
+
+
+
+
