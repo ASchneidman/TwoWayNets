@@ -1,4 +1,4 @@
 *.gz
 .vscode/*
 data/*
-*.pyc
+*.py
