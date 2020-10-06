@@ -40,7 +40,8 @@ class TiedBlock(torch.nn.Module):
         self.D_out = D_out
         self.is_linear = is_linear
         if not is_linear:
-            self.bn = RegularizedBatchNorm(D_out)
+            #self.bn = RegularizedBatchNorm(D_out)
+            self.bn = torch.nn.BatchNorm1d(D_out, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
             self.dropout = TiedDropoutLayer(p, None) if paired_dropout is None else TiedDropoutLayer(p, paired_dropout)
             self.activation = activation_function()
         self.linear = TiedLinear(D_in, D_out, None) if paired_linear is None else TiedLinear(D_in, D_out, paired_linear)
@@ -62,8 +63,10 @@ class TwoWayNet(torch.nn.Module):
         self.hidden_output_layer = hidden_output_layer
         self.dropout_prob = dropout_prob
 
-        # List of all gamma parameters for regularization
+        # All gamma parameters
         self.gammas = []
+        # All linear weight parameters
+        self.weights = []
 
         # Note: Tieing occurs in reverse (the first layer of x is tied with the last layer of y)
         # Create x -> y channel
@@ -71,7 +74,8 @@ class TwoWayNet(torch.nn.Module):
         D_in = self.input_x_shape
         for s in self.layer_sizes:
             self.x_enc.append(TiedBlock(D_in, s, self.dropout_prob))
-            self.gammas.append(self.x_enc[-1].bn.gamma)
+            self.gammas.append(self.x_enc[-1].bn.weight)
+            self.weights.append(self.x_enc[-1].linear.linear.weight)
             D_in = s
         # Last layer is just linear
         self.x_enc.append(TiedBlock(D_in, self.input_y_shape, self.dropout_prob, is_linear=True))
@@ -86,7 +90,8 @@ class TwoWayNet(torch.nn.Module):
                                         s,
                                         paired_dropout=self.x_enc[-(i+2)].dropout, 
                                         paired_linear=self.x_enc[-(i+1)].linear))
-            self.gammas.append(self.y_enc[-1].bn.gamma)
+            self.gammas.append(self.y_enc[-1].bn.weight)
+            self.weights.append(self.y_enc[-1].linear.linear.weight)
             D_in = s
         self.y_enc.append(TiedBlock(D_in, self.input_x_shape, paired_linear=self.x_enc[0].linear, is_linear=True))
         self.y_encoder = ListModule(*self.y_enc)
@@ -98,9 +103,6 @@ class TwoWayNet(torch.nn.Module):
         print(f"Y Encoder shapes:")
         for l in self.y_encoder:
             print(f"D_in: {l.D_in}, D_out: {l.D_out}")
-
-    def get_summed_gammas(self):
-        return sum(g.sum() for g in self.gammas)
 
     def forward(self, data):
         """
