@@ -7,12 +7,11 @@ class RegularizedBatchNorm(torch.nn.Module):
                        beta=0.0, 
                        epsilon=0.001):
         super(RegularizedBatchNorm, self).__init__()
-        self.gamma = torch.nn.Parameter(torch.full(D_in, gamma))
+        self.gamma = torch.nn.Parameter(torch.full((1, D_in), gamma[0]))
         self.gamma.requires_grad = True
         self.beta = beta
         self.epsilon = epsilon
         self.D_in = D_in
-        self.deterministic = deterministic
     
     def forward(self, x):
         m = x.mean(axis=0, keepdim=True)

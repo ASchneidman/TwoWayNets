@@ -4,6 +4,7 @@ import gzip
 import numpy
 import os
 import struct
+import torch
 
 from array import array
 
@@ -32,11 +33,12 @@ class MNIST(object):
         return ims, lbls
 
     def load_training(self):
-        ims = self.load(os.path.join(self.path, self.train_img_fname), os.path.join(self.path, self.train_label_fname))
+        ims, lbls = self.load(os.path.join(self.path, self.train_img_fname), os.path.join(self.path, self.train_label_fname))
 
         self.train_images = ims
+        self.train_labels = lbls
 
-        return ims
+        return ims, lbls
 
     @classmethod
     def load(cls, path_img, path_label):
@@ -88,6 +90,20 @@ class MNIST(object):
                 render += '.'
         return render
 
+
+class MNISTDataLoader(torch.utils.data.Dataset):
+    def __init__(self, dataset_path):
+        self.dataset_path = dataset_path
+        self.mnist = MNIST(self.dataset_path)
+        train = self.mnist.load_training()
+        self.train_set_imgs = train[0]
+        self.train_set_lbls = train[1]
+
+    def __len__(self):
+        return len(self.train_set_imgs)
+    
+    def __getitem__(self, idxs):
+        d = {"x": }
 
 """
 class MNISTDataSet(DatasetBase):

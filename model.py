@@ -62,12 +62,16 @@ class TwoWayNet(torch.nn.Module):
         self.hidden_output_layer = hidden_output_layer
         self.dropout_prob = dropout_prob
 
+        # List of all gamma parameters for regularization
+        self.gammas = []
+
         # Note: Tieing occurs in reverse (the first layer of x is tied with the last layer of y)
         # Create x -> y channel
         self.x_enc = []
         D_in = self.input_x_shape
         for s in self.layer_sizes:
             self.x_enc.append(TiedBlock(D_in, s, self.dropout_prob))
+            self.gammas.append(self.x_enc[-1].bn.gamma)
             D_in = s
         # Last layer is just linear
         self.x_enc.append(TiedBlock(D_in, self.input_y_shape, self.dropout_prob, is_linear=True))
@@ -82,6 +86,7 @@ class TwoWayNet(torch.nn.Module):
                                         s,
                                         paired_dropout=self.x_enc[-(i+2)].dropout, 
                                         paired_linear=self.x_enc[-(i+1)].linear))
+            self.gammas.append(self.y_enc[-1].bn.gamma)
             D_in = s
         self.y_enc.append(TiedBlock(D_in, self.input_x_shape, paired_linear=self.x_enc[0].linear, is_linear=True))
         self.y_encoder = ListModule(*self.y_enc)
@@ -94,22 +99,8 @@ class TwoWayNet(torch.nn.Module):
         for l in self.y_encoder:
             print(f"D_in: {l.D_in}, D_out: {l.D_out}")
 
-    def get_summed_gammas():
-        summed = torch.zeros((1, 1))
-        summed.requires_grad = True
-        for l in self.x_encoder:
-            summed += torch.reciprocal(l.bn.gamma).sum()
-        for l in self.y_encoder:
-            summed += torch.reciprocal(l.bn.gamma).sum()
-        return summed
-
-    def get_summed_l2_weights():
-        summed = torch.zeros((1, 1))
-        summed.requires_grad = True
-        for l in self.x_encoder:
-            summed += torch.norm(l.linear.weight) ** 2
-        # Weights are tied, so don't need to loop over y
-        return summed
+    def get_summed_gammas(self):
+        return sum(g.sum() for g in self.gammas)
 
     def forward(self, data):
         """
@@ -133,59 +124,13 @@ class TwoWayNet(torch.nn.Module):
         # Now y = reconstructed x, x = reconstructed y
         return reconstructed_x, reconstructed_y, hidden_xs, list(reversed(hidden_ys))
 
-
-def train(dataset, model, epochs, reconstructed_weight, hidden_weight, cov_weight, gamma_weight, lr):
-    optim = torch.optim.SGD(model.parameters(), lr, nesterov=True)
-    mse_loss = torch.nn.MSELoss()
-
-    losses = []
-    model.train()
-    for epoch in range(epochs):
-        avg_loss = 0
-        for data in dataset:
-            optim.zero_grad()
-            # Forward pass
-            xprime, yprime, hidden_xs, hidden_ys = model(data)
-
-            # Compute losses
-            # reconstruction losses
-            loss_x = mse_loss(xprime, data["x"])
-            loss_y = mse_loss(yprime, data["y"])
-
-            # hidden loss
-            loss_hidden = mse_loss(hidden_xs[model.hidden_output_layer], hidden_ys[model.hidden_output_layer])
-
-            # covariance loss
-            hidden_xs_tensor, hidden_ys_tensor = torch.stack(hidden_xs), torch.stack(hidden_ys)
-            cov_x = torch.dot(hidden_xs_tensor.T, hidden_xs_tensor) / hidden_xs_tensor.shape[0]
-            cov_y = torch.dot(hidden_ys_tensor.T, hidden_ys_tensor) / hidden_ys_tensor.shape[0]
-
-            cov_loss_x = torch.sqrt(torch.sum(cov_x ** 2)) - torch.sqrt(torch.sum(torch.diag(cov_x) ** 2))
-            cov_loss_y = torch.sqrt(torch.sum(cov_y ** 2)) - torch.sqrt(torch.sum(torch.diag(cov_y) ** 2))
-
-            # Weight Decay loss
-            loss_weight_decay = model.get_summed_l2_weights()
-            
-            # Gamma loss
-            loss_gamma = model.get_summed_gammas()
-
-            loss = (reconstructed_weight * loss_x + 
-                    reconstructed_weight * loss_y + 
-                    hidden_weight * loss_hidden + 
-                    cov_weight * cov_loss_x + 
-                    cov_weight * cov_loss_y + 
-                    gamma_weight * loss_gamma)
-            
-            # Backward step
-            loss.backward()
-            avg_loss += loss.item()
-
-            # Update step
-            optim.step()
-        losses.append(avg_loss / len(dataset))
-        print(f"Epoch {epoch+1}, loss: {losses[-1]}")
-
-
-
-
-
+    def encode(self, x_embed=None, y_embed=None):
+        x_result = x_embed
+        y_result = y_embed
+        if x_embed is not None:
+            for l in self.x_enc[:self.hidden_output_layer+1]:
+                x_result = l(x_result)
+        if y_embed is not None:
+            for l in self.y_enc[:self.hidden_output_layer+1]:
+                y_result = l(y_result)
+        return x_result, y_result
