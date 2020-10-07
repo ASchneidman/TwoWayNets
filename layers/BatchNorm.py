@@ -5,9 +5,10 @@ class RegularizedBatchNorm(torch.nn.Module):
     def __init__(self, D_in, 
                        gamma=numpy.random.uniform([.95, 1.05]), 
                        beta=0.0, 
-                       epsilon=0.001):
+                       epsilon=0.001,
+                       device=None):
         super(RegularizedBatchNorm, self).__init__()
-        self.gamma = torch.nn.Parameter(torch.full((1, D_in), gamma[0]))
+        self.gamma = torch.nn.Parameter(torch.full((1, D_in), gamma[0], device=device))
         self.gamma.requires_grad = True
         self.beta = beta
         self.epsilon = epsilon

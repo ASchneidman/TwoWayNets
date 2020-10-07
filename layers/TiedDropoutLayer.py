@@ -17,6 +17,8 @@ class TiedDropoutLayer(torch.nn.Module):
     def forward(self, x):
         if self.mode == False or self.p == 0.0:
             self.mask = torch.full(x.shape, 1.0)
+            if torch.cuda.is_available():
+                self.mask.cuda()
             return x
         retain_prob = 1 - self.p
         if self.paired_dropout is not None:
@@ -24,5 +26,7 @@ class TiedDropoutLayer(torch.nn.Module):
             assert self.mask is not None
         else:
             self.mask = torch.bernoulli(torch.full(x.shape, 1 - self.p))
+            if torch.cuda.is_available():
+                self.mask.cuda()
 
         return (x * self.mask) / math.sqrt(1 - self.p)
